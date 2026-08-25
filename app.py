@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Technocore TUI v3 — Claude Code style with FLOP banner.
+"""FLOP Monitor v1 — signed chat terminal client for Technocore.
 
-Layout: FLOP pixel banner, welcome, what's new, chat-style feed,
-bare prompt input, status bar. English UI.
+Layout: styled startup banner (pixel-art title, subtitle, author credit,
+status line — or banner.txt pixel logo if present), room sidebar,
+threaded chat feed, hairline prompt input, split status bar. English UI.
 """
 from __future__ import annotations
 
@@ -14,9 +15,10 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from textual import events, work
 from textual.app import App, ComposeResult
-from textual.containers import VerticalScroll
-from textual.widgets import Input, Static
+from textual.containers import Horizontal, VerticalScroll
+from textual.widgets import Input, Rule, Static
 
 try:
     from cryptography.hazmat.primitives.serialization import load_pem_private_key
@@ -29,6 +31,13 @@ FG = "#e8e6e3"
 DIM = "#6b6b75"
 ACCENT = "#ea6e2c"   # flop orange
 WHITE = "#f0f0f0"
+HAIRLINE = "#2a2a31"  # subtle separators
+BORDER = "#3a3a42"    # box border (a bit brighter than hairline)
+FOOT_BG = "#14141a"
+
+VERSION = "v1"
+SUBTITLE = "signed chat for humans — keys only, no accounts"
+AUTHOR = "by https://github.com/stacydav99"
 
 BANNER_FILE = Path(__file__).parent / "flop_banner.ansi"
 
@@ -62,7 +71,7 @@ def message_payload(room: str, nonce: str, text: str) -> bytes:
 
 
 def http_json(url: str, timeout: float = 15.0):
-    req = urllib.request.Request(url, headers={"User-Agent": "tc-tui/3.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "flop-monitor/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)
 
@@ -79,7 +88,7 @@ def post_message(room: str, text: str, key):
     url = f"{BASE}/r/{urllib.parse.quote(room)}?format=json"
     req = urllib.request.Request(
         url, data=body, method="POST",
-        headers={"Content-Type": "application/json", "User-Agent": "tc-tui/3.0"},
+        headers={"Content-Type": "application/json", "User-Agent": "flop-monitor/1.0"},
     )
     with urllib.request.urlopen(req, timeout=20) as r:
         resp = json.load(r)
@@ -93,42 +102,174 @@ def esc(s: str) -> str:
     return s.replace("[", "\\[")
 
 
+def banner_markup(line: str, row_colors: list) -> str:
+    """Run-length encode one banner row into Textual markup.
+
+    Spaces must be emitted verbatim (no color tags) — dropping them
+    merges adjacent glyphs.
+    """
+    parts = []
+    run_ch, run_col, start = None, None, 0
+    for col, ch in enumerate(line):
+        c = row_colors[col] if col < len(row_colors) else None
+        if ch != run_ch or c != run_col:
+            if run_ch is not None:
+                seg = line[start:col]
+                if run_ch == " ":
+                    parts.append(seg)
+                elif run_col:
+                    parts.append(f"[{run_col}]{seg}[/]")
+                else:
+                    parts.append(seg)
+            run_ch, run_col, start = ch, c, col
+    if run_ch is not None:
+        seg = line[start:]
+        if run_ch == " ":
+            parts.append(seg)
+        elif run_col:
+            parts.append(f"[{run_col}]{seg}[/]")
+        else:
+            parts.append(seg)
+    return "".join(parts)
+
+
+# 4x6 pixel glyphs for the built-in startup title (chunky pixel style,
+# matches the FLOP logo aesthetic). Covers "FLOP MONITOR".
+PIXEL_FONT = {
+    "F": ["XXXX", "X...", "XXX.", "X...", "X...", "X..."],
+    "L": ["X...", "X...", "X...", "X...", "X...", "XXXX"],
+    "O": [".XX.", "X..X", "X..X", "X..X", "X..X", ".XX."],
+    "P": ["XXX.", "X..X", "X..X", "XXX.", "X...", "X..."],
+    "M": ["X..X", "XX.X", "X.XX", "X..X", "X..X", "X..X"],
+    "N": ["X..X", "XX.X", "XX.X", "X.XX", "X.XX", "X..X"],
+    "I": [".XX.", ".XX.", ".XX.", ".XX.", ".XX.", ".XX."],
+    "T": ["XXXX", ".XX.", ".XX.", ".XX.", ".XX.", ".XX."],
+    "R": ["XXX.", "X..X", "X..X", "XXX.", "X.X.", "X..X"],
+}
+
+
+def render_pixel_title(text: str) -> list[str]:
+    """Render text as 6 markup rows, one full-block █ per pixel.
+
+    Full blocks only — half-blocks (▀▄) depend on terminal font and
+    shatter on some setups. Letters wrapped individually so per-letter
+    colors never bleed.
+    """
+    rows = []
+    for r in range(6):
+        parts = []
+        for ch in text:
+            glyph = PIXEL_FONT.get(ch)
+            if glyph is None:
+                seg = "    "
+            else:
+                seg = "".join("█" if glyph[r][col] == "X" else " "
+                              for col in range(4))
+            parts.append(f"[{ACCENT}]{seg}[/]" if ch == "O" else seg)
+            parts.append(" ")
+        rows.append("".join(parts).rstrip())
+    return rows
+
+
 class TechnocoreTUI(App):
     CSS = f"""
     Screen {{ background: {BG}; }}
-    .roombar {{
-        height: 1; padding: 0 3; background: {BG}; text-align: right;
-    }}
-    #feed {{
-        height: 1fr; padding: 0 3; background: {BG};
-        scrollbar-size: 0 0;
-    }}
+
     #header {{
-        height: auto; max-height: 12; padding: 0 3; background: {BG};
+        height: auto;
+        padding: 0 3 1 3;
+        background: {BG};
+        scrollbar-size: 0 0;
+        border: solid {BORDER};
+        border-title-color: {ACCENT};
+        border-title-background: {BG};
+        border-title-style: bold;
+        margin-bottom: 1;
+    }}
+    .banner {{ color: {WHITE}; }}
+    .subtitle {{ color: {FG}; margin-top: 1; }}
+    .credit {{ color: {DIM}; }}
+    .banner-status {{ color: {DIM}; margin-bottom: 1; }}
+
+    #main {{ height: 1fr; margin-bottom: 1; }}
+
+    #sidebar {{
+        width: 24; padding: 1 1;
+        background: {FOOT_BG};
+        border: solid {BORDER};
+        border-title-color: {ACCENT};
+        border-title-background: {FOOT_BG};
+        border-title-style: bold;
+        scrollbar-size: 0 0;
+        margin-right: 1;
+    }}
+    .sidebar-head {{ display: none; }}
+    .room-item {{ color: {FG}; padding: 0 1; }}
+    .room-item:hover {{ background: #23232b; }}
+
+    #feed {{
+        width: 1fr; height: 1fr; padding: 0 3;
+        background: {BG};
+        border: solid {BORDER};
+        border-title-color: {FG};
+        border-title-background: {BG};
+        border-title-style: bold;
         scrollbar-size: 0 0;
     }}
-    .banner {{ color: {WHITE}; margin-bottom: 1; }}
-    .welcome {{ color: {WHITE}; text-style: bold; margin-bottom: 1; }}
-    .whatsnew {{ color: {DIM}; margin-bottom: 0; }}
+    .welcome {{ color: {WHITE}; text-style: bold; }}
     .whatsnew-head {{ color: {DIM}; text-style: bold; }}
-    .sep {{ color: {DIM}; margin-top: 1; margin-bottom: 1; }}
+    .whatsnew {{ color: {FG}; }}
+    #feed > Rule {{ color: {HAIRLINE}; margin-top: 1; margin-bottom: 1; }}
+
     .msg {{ margin-bottom: 1; }}
-    .msg-user {{ color: {WHITE}; margin-bottom: 1; }}
-    .sender {{ color: {ACCENT}; text-style: bold; }}
-    .time {{ color: {DIM}; }}
-    .body {{ color: {FG}; }}
-    .mine .sender {{ color: {ACCENT}; }}
+
+    #help-pop {{
+        position: absolute;
+        width: 48; height: auto; max-height: 12;
+        background: #23232b;
+        border: solid {BORDER};
+        padding: 1 2;
+        color: #9aa0a6;
+        display: none;
+    }}
+    #live-clock {{
+        position: absolute;
+        width: 22; height: 1;
+        background: {BG};
+        color: {DIM};
+        text-align: right;
+    }}
+    #help-pop.visible {{ display: block; }}
+    .help-title {{ color: #8aa08a; text-style: bold; }}
+
     #input {{
-        dock: bottom; height: 3; padding: 0 2; background: {BG}; border: none;
+        dock: bottom; height: 5; padding: 1 2;
+        background: {BG};
+        border: solid {BORDER};
+        border-title-color: {DIM};
+        border-title-background: {BG};
     }}
     #input > .input--placeholder {{ color: {DIM}; }}
-    #status {{
-        dock: bottom; height: 1; color: {DIM}; padding: 0 3;
+
+    #statusbar {{
+        dock: bottom; height: 1;
+        padding: 0 3;
+        background: {FOOT_BG};
+    }}
+    #status-left {{ width: 1fr; color: {DIM}; }}
+    #status-right {{ width: auto; color: {DIM}; }}
+    #footer {{
+        dock: bottom; height: 1;
+        padding: 0 3;
+        background: {FOOT_BG};
+        color: {DIM};
+        text-align: center;
     }}
     """
     BINDINGS = [
         ("ctrl+c", "quit", "Quit"),
         ("ctrl+r", "refresh", "Refresh"),
+        ("escape", "hide_help", "Close help"),
         ("up", "scroll_up", "Scroll up"),
         ("down", "scroll_down", "Scroll down"),
         ("pageup", "page_up", "Page up"),
@@ -137,76 +278,139 @@ class TechnocoreTUI(App):
         ("end", "scroll_end", "Bottom"),
     ]
 
-    def __init__(self, room: str, key=None):
+    def __init__(self, room: str, key=None, sidebar_width: int = 24):
         super().__init__()
         self.room = room
         self.key = key
+        self.sidebar_width = max(8, min(int(sidebar_width), 60))
         self.last_seq = None
         self.my_did = did_from_key(key) if key else None
         self.head_seq = 0
+        self._help_timer = None
         self.load_aliases()
+
+    def _show_help(self):
+        self._position_help()
+        pop = self.query_one("#help-pop")
+        pop.update(
+            "[#8aa08a][b]Commands[/][/]\n"
+            "[#9aa0a6]  /join <room>       switch room[/]\n"
+            "[#9aa0a6]  /did               show your DID[/]\n"
+            "[#9aa0a6]  /alias <name> <did> label a DID[/]\n"
+            "[#9aa0a6]  /alias list        show aliases[/]\n"
+            "[#9aa0a6]  /unalias <name>    remove[/]\n"
+            "[#9aa0a6]  ctrl+r             refresh now[/]"
+        )
+        pop.add_class("visible")
+        if self._help_timer:
+            self._help_timer.stop()
+        self._help_timer = self.set_timer(4.5, self._hide_help)
+
+    def _hide_help(self):
+        try:
+            self.query_one("#help-pop").remove_class("visible")
+        except Exception:
+            pass
+        self._help_timer = None
+
+    def _position_help(self):
+        pop = self.query_one("#help-pop")
+        pop.styles.position = "absolute"
+        w = 48
+        try:
+            x = max(0, self.size.width - w - 2)
+        except Exception:
+            x = 60
+        pop.styles.offset = (x, 2)
+
+    def _position_clock(self):
+        clk = self.query_one("#live-clock")
+        clk.styles.position = "absolute"
+        w = 22
+        try:
+            x = max(0, self.size.width - w - 1)
+        except Exception:
+            x = 70
+        clk.styles.offset = (x, 1)
+
+    def _update_clock(self):
+        try:
+            t = time.strftime("%H:%M UTC", time.gmtime())
+            self.query_one("#live-clock").update(
+                f"[#6b6b75]{t}[/] · [#2ecc71]●[/] [#6b6b75]live[/]"
+            )
+        except Exception:
+            pass
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="header")
-        yield VerticalScroll(id="feed")
+        with Horizontal(id="main"):
+            yield VerticalScroll(id="sidebar")
+            yield VerticalScroll(id="feed")
+        yield Static("", id="help-pop")
+        yield Static("", id="live-clock")
         yield Input(
             placeholder="Type a message and press Enter to sign & send"
             if self.key else "Read-only — restart with --key identity.pem to post",
             id="input",
         )
-        yield Static("", id="status")
+        yield Horizontal(
+            Static("", id="status-left"),
+            Static("", id="status-right"),
+            id="statusbar",
+        )
+        yield Static("↑↓ scroll · /join <room> · /alias <name> <did> · /did · ctrl+c quit", id="footer")
 
-    def on_mount(self):
+    async def on_mount(self):
         header = self.query_one("#header")
+        header.border_title = f" FLOP MONITOR {VERSION} "
+        self._position_help()
+        self._position_clock()
+        self._update_clock()
+        # titles for boxed panels (like the screenshot: Library / Songs / etc)
+        self.query_one("#sidebar").border_title = " Rooms "
+        self.query_one("#feed").border_title = f" {self.room} "
+        self.query_one("#input").border_title = " Message "
         banner_txt = Path(__file__).parent / "banner.txt"
-        colors = json.loads((Path(__file__).parent / "banner_colors.json").read_text())
+        colors_file = Path(__file__).parent / "banner_colors.json"
         if banner_txt.exists():
-            for row, line in enumerate(banner_txt.read_text().splitlines()):
-                row_colors = colors[row] if row < len(colors) else []
-                parts = []
-                run_ch, run_col, start = None, None, 0
-                for col, ch in enumerate(line):
-                    c = row_colors[col] if col < len(row_colors) else None
-                    if ch != run_ch or c != run_col:
-                        if run_ch is not None:
-                            seg = line[start:col]
-                            if run_ch == " ":
-                                parts.append(seg)
-                            elif run_col:
-                                parts.append(f"[{run_col}]{seg}[/]")
-                            else:
-                                parts.append(seg)
-                        run_ch, run_col, start = ch, c, col
-                if run_ch is not None:
-                    seg = line[start:]
-                    if run_ch == " ":
-                        parts.append(seg)
-                    elif run_col:
-                        parts.append(f"[{run_col}]{seg}[/]")
-                    else:
-                        parts.append(seg)
-                header.mount(Static("".join(parts), classes="banner"))
-        # room tabs overlay: absolutely positioned top-right, beside the logo
-        from textual.containers import Horizontal
-        bar = Static("", id="roombar", classes="roombar")
-        bar.styles.position = "absolute"
-        bar.styles.top = 2
-        bar.styles.right = 1
-        self.mount(bar)
+            try:
+                lines = banner_txt.read_text().splitlines()
+                colors = (
+                    json.loads(colors_file.read_text())
+                    if colors_file.exists() else []
+                )
+                for row, line in enumerate(lines):
+                    row_colors = colors[row] if row < len(colors) else []
+                    header.mount(Static(banner_markup(line, row_colors),
+                                        classes="banner"))
+            except (OSError, json.JSONDecodeError):
+                pass  # fall back to built-in title
+        else:
+            for row in render_pixel_title("FLOP MONITOR"):
+                header.mount(Static(row, classes="banner"))
+        ident = ("read-only" if not self.key else
+                 self.my_did.replace("did:key:", "")[:8] + "…"
+                 + self.my_did[-4:])
+        header.mount(Static(SUBTITLE, classes="subtitle"))
+        header.mount(Static(f"{AUTHOR}", classes="credit"))
+        header.mount(Static(
+            f"[{ACCENT}]●[/] [dim]{esc(self.room)} · {VERSION} · {ident}[/]",
+            classes="banner-status"))
         feed = self.query_one("#feed")
         feed.mount(Static("Welcome back!", classes="welcome"))
         feed.mount(Static("What's new:", classes="whatsnew-head"))
         for item in (
-            "· Real-time room feed (polls every 5s)",
-            "· Messages signed with your Ed25519 identity",
-            "· /join <room> to switch · /did to show your DID",
+            "Real-time room feed (polls every 5s)",
+            "Messages signed with your Ed25519 identity",
+            "/join <room> to switch · /did to show your DID",
         ):
-            w = Static(item, classes="whatsnew")
-            w.markup = False
-            feed.mount(w)
-        sep = Static("─" * 200, classes="sep")
-        feed.mount(sep)
+            feed.mount(Static(f"[{ACCENT}]·[/]  {item}", classes="whatsnew"))
+        feed.mount(Rule())
+        self.query_one("#sidebar").styles.width = self.sidebar_width
+        await self.update_sidebar()
         self.set_interval(5.0, self.poll)
+        self.set_interval(1.0, self._update_clock)
         self.call_after_refresh(self.poll)
         self.query_one("#input").focus()
 
@@ -227,25 +431,73 @@ class TechnocoreTUI(App):
             self.aliases = {}
 
     def save_aliases(self):
-        self.ALIASES_FILE.write_text(json.dumps(self.aliases, indent=2))
+        try:
+            self.ALIASES_FILE.write_text(json.dumps(self.aliases, indent=2))
+        except OSError as e:
+            self.notify(f"alias not saved: {e}", severity="warning")
 
     ROOMS = ["lobby", "technocore", "general", "dev", "flop", "tips"]
 
-    def update_roombar(self):
-        parts = []
-        for r in self.ROOMS:
-            if r == self.room:
-                parts.append(f"[bold {ACCENT}][{r}][/]".replace(f"[{r}]", f"\\[{r}]"))
-            else:
-                parts.append(f"[dim]{r}[/]")
-        self.query_one("#roombar").update("  ".join(parts))
-
     def update_status(self, state: str = "connected"):
         dot = "[green]●[/]" if state == "connected" else "[red]●[/]"
-        self.query_one("#status").update(
-            f" {self.room}  ·  seq {self.head_seq}  ·  {dot} {state}"
-            + ("  ·  read-only" if not self.key else "")
+        right = f"{dot} {state}" + ("  ·  read-only" if not self.key else "")
+        self.query_one("#status-left").update(
+            f"{esc(self.room)} · seq {self.head_seq}"
         )
+        self.query_one("#status-right").update(right)
+
+    def _sidebar_rooms(self):
+        rooms = list(self.ROOMS)
+        if self.room not in rooms:
+            rooms.append(self.room)
+        return rooms
+
+    async def update_sidebar(self):
+        sb = self.query_one("#sidebar")
+        await sb.remove_children()
+        # title now lives in the box border, not as a row inside
+        for i, r in enumerate(self._sidebar_rooms()):
+            if r == self.room:
+                label = f"[bold {ACCENT}]▸ {esc(r)}[/]"
+            else:
+                label = f"[dim]  {esc(r)}[/]"
+            sb.mount(Static(label, classes="room-item", id=f"room-{i}"))
+
+    def action_hide_help(self):
+        self._hide_help()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._position_clock()
+        if self.query_one("#help-pop").has_class("visible"):
+            self._position_help()
+
+    async def on_click(self, event: events.Click) -> None:
+        # click anywhere hides the help popup (if open)
+        if self.query_one("#help-pop").has_class("visible"):
+            self._hide_help()
+        wid = getattr(event.widget, "id", None) or ""
+        if not wid.startswith("room-"):
+            return
+        try:
+            room = self._sidebar_rooms()[int(wid[len("room-"):])]
+        except (ValueError, IndexError):
+            return
+        if room != self.room:
+            await self.switch_room(room)
+
+    async def switch_room(self, room: str):
+        self.room = room
+        self.last_seq = None
+        feed = self._feed()
+        await feed.remove_children()
+        feed.mount(Rule())
+        # keep box title in sync with current room (like Songs header)
+        try:
+            self.query_one("#feed").border_title = f" {room} "
+        except Exception:
+            pass
+        await self.update_sidebar()
+        self.poll()
 
     def action_refresh(self):
         self.poll()
@@ -271,6 +523,7 @@ class TechnocoreTUI(App):
     def action_scroll_end(self):
         self._feed().scroll_end(animate=False)
 
+    @work(exclusive=True)
     def poll(self):
         try:
             q = (urllib.parse.urlencode({"format": "json", "limit": 30})
@@ -289,10 +542,11 @@ class TechnocoreTUI(App):
                 mine = self.my_did and m["from"] == self.my_did
                 sender = self.short(m["from"])
                 body = esc(m.get("text", ""))
-                wrap = Static("", classes="msg me" if mine else "msg")
+                col = WHITE if mine else ACCENT
+                wrap = Static("", classes="msg")
                 wrap.update(
-                    f"[{ACCENT}]●[/] [bold {ACCENT}]{sender}[/] [dim]{ts}[/]\n"
-                    f"[{FG}]{body}[/]"
+                    f"[bold {col}]● {esc(sender)}[/]  [dim]{ts}[/]\n"
+                    f"  [{FG}]{body}[/]"
                 )
                 feed.mount(wrap)
                 new = True
@@ -302,28 +556,21 @@ class TechnocoreTUI(App):
             if new:
                 feed.scroll_end(animate=False)
             self.update_status()
-            self.update_roombar()
         except Exception as e:  # noqa: BLE001
             self.update_status(f"error: {str(e)[:40]}")
 
-    def on_input_submitted(self, event: Input.Submitted):
+    async def on_input_submitted(self, event: Input.Submitted):
         value = event.value.strip()
         event.input.value = ""
         if not value:
             return
         if value.startswith("/join "):
-            self.room = value.split(None, 1)[1].strip()
-            self.last_seq = None
-            feed = self.query_one("#feed")
-            feed.remove_children()
-            sep = Static("─" * 200, classes="sep")
-            feed.mount(sep)
-            self.update_roombar()
-            self.poll()
+            room = value.split(None, 1)[1].strip()
+            if room:
+                await self.switch_room(room)
             return
         if value in ("/help", "?"):
-            self.notify("/join <room>  switch room\n/did  show your DID\n/alias <name> <did>  label a DID\n/alias list  show aliases\n/unalias <name>  remove\nctrl+r  refresh now",
-                        title="Commands")
+            self._show_help()
             return
         if value == "/did":
             self.notify(self.my_did or "(read-only)", title="Your DID")
@@ -364,6 +611,10 @@ class TechnocoreTUI(App):
         if not self.key:
             self.notify("Read-only mode — restart with --key identity.pem", severity="warning")
             return
+        self._send(value)
+
+    @work(exclusive=False)
+    def _send(self, value: str):
         try:
             post_message(self.room, value, self.key)
             self.poll()
@@ -375,6 +626,9 @@ def main():
     ap = argparse.ArgumentParser(description="Technocore terminal UI")
     ap.add_argument("--room", default="lobby")
     ap.add_argument("--key", type=Path, default=None)
+    ap.add_argument("--sidebar-width", type=int, default=24,
+                    metavar="N",
+                    help="room sidebar width in columns (default 24)")
     args = ap.parse_args()
 
     key = None
@@ -386,7 +640,7 @@ def main():
         pw = getpass.getpass("Passphrase: ").encode()
         key = load_pem_private_key(data, password=pw)
 
-    TechnocoreTUI(args.room, key).run()
+    TechnocoreTUI(args.room, key, sidebar_width=args.sidebar_width).run()
 
 
 if __name__ == "__main__":
