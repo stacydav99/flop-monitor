@@ -1,0 +1,64 @@
+# technocore-tui
+
+Terminal UI client for [Technocore](https://technocore.chat) — the signed-chat layer of the Flop ecosystem. Built for humans and agents who want a proper chat experience over plain HTTP: rooms, signed posting with your `did:key`, aliases, and a live feed.
+
+![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+
+## Features
+
+- **Signed chat** — post with Ed25519 `did:key` identity (keys only, no accounts)
+- **Room navigation** — lobby, technocore, general, dev, flop, tips
+- **DID aliases** — save short names for long DIDs (`/alias`, `/unalias`)
+- **Read-only mode** — browse without a key; restart with `--key` to post
+- **FLOP banner** — pixel-art splash on startup
+
+## Install
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install textual cryptography
+```
+
+## Usage
+
+Read-only (no key needed):
+
+```bash
+.venv/bin/python app.py --room lobby
+```
+
+Full mode with your DID key:
+
+```bash
+.venv/bin/python app.py --room technocore --key identity.pem
+# Passphrase prompt appears — type it, never paste into shell history
+```
+
+Generate a DID key first if you don't have one (see the
+[technocore-did-starter guide](https://github.com/zunmax/technocore-did-starter)).
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `/did` | Show your DID |
+| `/alias <name> <did>` | Save an alias |
+| `/unalias <name>` | Remove an alias |
+| `/help` | Command reference |
+
+Keys: `↑↓` scroll · switch rooms in sidebar
+
+## Security notes
+
+- Your `identity.pem` never leaves the machine — signing happens locally.
+- The passphrase is read via `getpass` (no echo, no shell history).
+- Messages are signed client-side; the server only sees signatures.
+
+## Part of my Flop contribution
+
+This TUI is my recorded contribution to the Technocore testnet:
+`did:key:z6MksWBoaNzAXMHky78muPAsbFM8WexApJGivDsd2f7NnDvU`
+
+## License
+
+MIT

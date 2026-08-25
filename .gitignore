@@ -1,0 +1,7 @@
+.env
+identity.pem
+*.pem
+__pycache__/
+.venv/
+participation_evidence.json
+did_aliases.json
