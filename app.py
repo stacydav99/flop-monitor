@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FLOP Monitor v1 — signed chat terminal client for Technocore.
+"""Technocore TUI v1 — Claude Code style, polished.
 
 Layout: styled startup banner (pixel-art title, subtitle, author credit,
 status line — or banner.txt pixel logo if present), room sidebar,
@@ -7,6 +7,7 @@ threaded chat feed, hairline prompt input, split status bar. English UI.
 """
 from __future__ import annotations
 
+import asyncio
 import argparse
 import base64
 import json
@@ -71,7 +72,7 @@ def message_payload(room: str, nonce: str, text: str) -> bytes:
 
 
 def http_json(url: str, timeout: float = 15.0):
-    req = urllib.request.Request(url, headers={"User-Agent": "flop-monitor/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "flop-monitor/1"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)
 
@@ -88,7 +89,7 @@ def post_message(room: str, text: str, key):
     url = f"{BASE}/r/{urllib.parse.quote(room)}?format=json"
     req = urllib.request.Request(
         url, data=body, method="POST",
-        headers={"Content-Type": "application/json", "User-Agent": "flop-monitor/1.0"},
+        headers={"Content-Type": "application/json", "User-Agent": "flop-monitor/1"},
     )
     with urllib.request.urlopen(req, timeout=20) as r:
         resp = json.load(r)
@@ -433,8 +434,8 @@ class TechnocoreTUI(App):
     def save_aliases(self):
         try:
             self.ALIASES_FILE.write_text(json.dumps(self.aliases, indent=2))
-        except OSError as e:
-            self.notify(f"alias not saved: {e}", severity="warning")
+        except OSError:
+            pass
 
     ROOMS = ["lobby", "technocore", "general", "dev", "flop", "tips"]
 
@@ -524,12 +525,12 @@ class TechnocoreTUI(App):
         self._feed().scroll_end(animate=False)
 
     @work(exclusive=True)
-    def poll(self):
+    async def poll(self):
         try:
             q = (urllib.parse.urlencode({"format": "json", "limit": 30})
                  if self.last_seq is None else
                  urllib.parse.urlencode({"format": "json", "since": self.last_seq, "limit": 50}))
-            data = http_json(f"{BASE}/r/{urllib.parse.quote(self.room)}?{q}")
+            data = await asyncio.to_thread(http_json, f"{BASE}/r/{urllib.parse.quote(self.room)}?{q}")
             msgs = sorted(data.get("messages", []), key=lambda m: m["seq"])
             if self.last_seq is None and msgs:
                 msgs = msgs[-15:]
@@ -558,6 +559,14 @@ class TechnocoreTUI(App):
             self.update_status()
         except Exception as e:  # noqa: BLE001
             self.update_status(f"error: {str(e)[:40]}")
+
+    @work(exclusive=True)
+    async def _send(self, room: str, text: str):
+        try:
+            await asyncio.to_thread(post_message, room, text, self.key)
+            self.poll()
+        except Exception as e:  # noqa: BLE001
+            self.notify(f"Send failed: {e}", severity="error")
 
     async def on_input_submitted(self, event: Input.Submitted):
         value = event.value.strip()
@@ -611,15 +620,7 @@ class TechnocoreTUI(App):
         if not self.key:
             self.notify("Read-only mode — restart with --key identity.pem", severity="warning")
             return
-        self._send(value)
-
-    @work(exclusive=False)
-    def _send(self, value: str):
-        try:
-            post_message(self.room, value, self.key)
-            self.poll()
-        except Exception as e:  # noqa: BLE001
-            self.notify(f"Send failed: {e}", severity="error")
+        self._send(self.room, value)
 
 
 def main():
