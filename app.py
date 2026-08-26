@@ -250,10 +250,11 @@ class TechnocoreTUI(App):
     }}
     #live-clock {{
         position: absolute;
-        width: 22; height: 1;
+        width: 100%; height: 1;
         background: {BG};
         color: {DIM};
         text-align: right;
+        padding-right: 2;
     }}
     #help-pop.visible {{ display: block; }}
     .help-title {{ color: #8aa08a; text-style: bold; }}
@@ -342,12 +343,7 @@ class TechnocoreTUI(App):
     def _position_clock(self):
         clk = self.query_one("#live-clock")
         clk.styles.position = "absolute"
-        w = 22
-        try:
-            x = max(0, self.size.width - w - 1)
-        except Exception:
-            x = 70
-        clk.styles.offset = (x, 1)
+        clk.styles.offset = (0, 0)
 
     def _update_clock(self):
         try:
