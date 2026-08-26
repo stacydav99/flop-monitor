@@ -390,34 +390,17 @@ class TechnocoreTUI(App):
         banner_txt = Path(__file__).parent / "banner.txt"
         colors_file = Path(__file__).parent / "banner_colors.json"
         if banner_txt.exists():
-            # Side-by-side: FLOP logo (banner.txt) + pixel "MONITOR" to its right.
+            # Full "FLOP MONITOR" pixel banner from banner.txt (pre-rendered art).
             try:
-                logo_lines = banner_txt.read_text().splitlines()
+                lines = banner_txt.read_text(encoding="utf-8").splitlines()
                 colors = (
-                    json.loads(colors_file.read_text())
+                    json.loads(colors_file.read_text(encoding="utf-8"))
                     if colors_file.exists() else []
                 )
-                # pick MONITOR scale that fits beside the logo without wrapping
-                logo_w = max(len(l) for l in logo_lines) if logo_lines else 0
-                try:
-                    term_w = os.get_terminal_size().columns
-                except OSError:
-                    term_w = self.size.width or 100
-                avail = max(40, term_w - logo_w - 10)
-                scale = 2 if avail >= 70 else 1
-                mon_rows = render_pixel_title("MONITOR", scale=scale)
-                # vertically center the 6-row logo against taller MONITOR
-                pad_top = max(0, (len(mon_rows) - len(logo_lines)) // 2)
-                padded = [""] * pad_top + logo_lines
-                n = max(len(padded), len(mon_rows))
-                for i in range(n):
-                    left = padded[i] if i < len(padded) else ""
-                    right = mon_rows[i] if i < len(mon_rows) else ""
-                    row_colors = colors[i] if i < len(colors) else []
-                    header.mount(Static(
-                        banner_markup(left, row_colors)
-                        + f"[{DIM}]   [/]" + right,
-                        classes="banner"))
+                for row, line in enumerate(lines):
+                    row_colors = colors[row] if row < len(colors) else []
+                    header.mount(Static(banner_markup(line, row_colors),
+                                        classes="banner"))
             except (OSError, json.JSONDecodeError):
                 pass  # fall back to built-in title
         else:
