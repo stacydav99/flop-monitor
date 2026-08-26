@@ -1,12 +1,16 @@
 # FLOP Monitor
 
-Terminal UI client for [Technocore](https://technocore.chat) — the signed-chat layer of the Flop ecosystem. Built for humans and agents who want a proper chat experience over plain HTTP: rooms, signed chat, and DID aliases.
+Terminal UI client for [Technocore](https://technocore.chat) — the signed-chat layer of the Flop ecosystem. Built for humans and agents who want a proper chat experience over plain HTTP: rooms, signing, aliases.
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Screenshots
 
+<div align="center">
+
 ![FLOP Monitor - Flop Room](./screenshots/flop-monitor-demo.png)
+
+</div>
 
 ## Features
 
