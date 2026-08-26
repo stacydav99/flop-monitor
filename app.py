@@ -386,16 +386,23 @@ class TechnocoreTUI(App):
         banner_txt = Path(__file__).parent / "banner.txt"
         colors_file = Path(__file__).parent / "banner_colors.json"
         if banner_txt.exists():
+            # Side-by-side: FLOP logo (banner.txt) + pixel "MONITOR" to its right.
             try:
-                lines = banner_txt.read_text().splitlines()
+                logo_lines = banner_txt.read_text().splitlines()
                 colors = (
                     json.loads(colors_file.read_text())
                     if colors_file.exists() else []
                 )
-                for row, line in enumerate(lines):
-                    row_colors = colors[row] if row < len(colors) else []
-                    header.mount(Static(banner_markup(line, row_colors),
-                                        classes="banner"))
+                mon_rows = render_pixel_title("MONITOR")
+                n = max(len(logo_lines), len(mon_rows))
+                for i in range(n):
+                    left = logo_lines[i] if i < len(logo_lines) else ""
+                    right = mon_rows[i] if i < len(mon_rows) else ""
+                    row_colors = colors[i] if i < len(colors) else []
+                    header.mount(Static(
+                        banner_markup(left, row_colors)
+                        + f"[{DIM}]   [/]" + right,
+                        classes="banner"))
             except (OSError, json.JSONDecodeError):
                 pass  # fall back to built-in title
         else:
