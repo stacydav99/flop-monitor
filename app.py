@@ -397,8 +397,16 @@ class TechnocoreTUI(App):
                     json.loads(colors_file.read_text())
                     if colors_file.exists() else []
                 )
-                mon_rows = render_pixel_title("MONITOR", scale=2)
-                # vertically center the 6-row logo against the 12-row MONITOR
+                # pick MONITOR scale that fits beside the logo without wrapping
+                logo_w = max(len(l) for l in logo_lines) if logo_lines else 0
+                try:
+                    term_w = os.get_terminal_size().columns
+                except OSError:
+                    term_w = self.size.width or 100
+                avail = max(40, term_w - logo_w - 10)
+                scale = 2 if avail >= 70 else 1
+                mon_rows = render_pixel_title("MONITOR", scale=scale)
+                # vertically center the 6-row logo against taller MONITOR
                 pad_top = max(0, (len(mon_rows) - len(logo_lines)) // 2)
                 padded = [""] * pad_top + logo_lines
                 n = max(len(padded), len(mon_rows))
