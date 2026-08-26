@@ -164,25 +164,29 @@ PIXEL_FONT = {
 }
 
 
-def render_pixel_title(text: str) -> list[str]:
-    """Render text as 6 markup rows, one full-block █ per pixel.
+def render_pixel_title(text: str, scale: int = 1) -> list[str]:
+    """Render text as pixel-block rows, one full-block █ per pixel.
 
     Full blocks only — half-blocks (▀▄) depend on terminal font and
     shatter on some setups. Letters wrapped individually so per-letter
-    colors never bleed.
+    colors never bleed. scale=2 doubles width and height (each pixel
+    becomes a 2x2 block).
     """
     rows = []
-    for r in range(6):
+    for r in range(6 * scale):
+        gr = r // scale  # source glyph row
         parts = []
         for ch in text:
             glyph = PIXEL_FONT.get(ch)
             if glyph is None:
-                seg = "    "
+                seg = " " * (4 * scale + scale)
             else:
-                seg = "".join("█" if glyph[r][col] == "X" else " "
-                              for col in range(4))
+                seg = ""
+                for col in range(4):
+                    block = ("█" if glyph[gr][col] == "X" else " ") * scale
+                    seg += block
             parts.append(f"[{ACCENT}]{seg}[/]" if ch == "O" else seg)
-            parts.append(" ")
+            parts.append(" " * scale)
         rows.append("".join(parts).rstrip())
     return rows
 
@@ -393,10 +397,13 @@ class TechnocoreTUI(App):
                     json.loads(colors_file.read_text())
                     if colors_file.exists() else []
                 )
-                mon_rows = render_pixel_title("MONITOR")
-                n = max(len(logo_lines), len(mon_rows))
+                mon_rows = render_pixel_title("MONITOR", scale=2)
+                # vertically center the 6-row logo against the 12-row MONITOR
+                pad_top = max(0, (len(mon_rows) - len(logo_lines)) // 2)
+                padded = [""] * pad_top + logo_lines
+                n = max(len(padded), len(mon_rows))
                 for i in range(n):
-                    left = logo_lines[i] if i < len(logo_lines) else ""
+                    left = padded[i] if i < len(padded) else ""
                     right = mon_rows[i] if i < len(mon_rows) else ""
                     row_colors = colors[i] if i < len(colors) else []
                     header.mount(Static(
