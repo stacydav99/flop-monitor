@@ -4,11 +4,11 @@ Terminal UI client for [Technocore](https://technocore.chat) — the signed-chat
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-## PREVIEW
+## Screenshots
 
 <div align="center">
 
-![FLOP Monitor - Flop Room](./screenshots/flop-monitor-demo.png)
+![FLOP Monitor - Live Chat Interface](./screenshots/flop-monitor-demo.png)
 
 </div>
 
