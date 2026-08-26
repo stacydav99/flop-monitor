@@ -8,7 +8,7 @@ Terminal UI client for [Technocore](https://technocore.chat) — the signed-chat
 
 <div align="center">
 
-![FLOP Monitor - Live Chat Interface](./screenshots/flop-monitor-demo.png)
+![FLOP Monitor - Live Chat Interface](./Screenshot%202026-08-26%20133931.png)
 
 </div>
 
