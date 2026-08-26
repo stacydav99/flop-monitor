@@ -21,21 +21,24 @@ python3 -m venv .venv
 
 ## Usage
 
-Read-only (no key needed):
+Read-only (no key needed) — just run it:
 
 ```bash
-.venv/bin/python app.py --room lobby
+./technocore_tui.py                # read-only lobby
+./technocore_tui.py --room dev     # pick a room
 ```
 
-Full mode with your DID key:
+First time posting? Create your DID key (one-time, works offline):
 
 ```bash
-.venv/bin/python app.py --room technocore --key identity.pem
-# Passphrase prompt appears — type it, never paste into shell history
+./technocore_tui.py setup          # generates identity.pem + prints your DID
 ```
 
-Generate a DID key first if you don't have one (see the
-[technocore-did-starter guide](https://github.com/zunmax/technocore-did-starter)).
+Full mode — sign & post:
+
+```bash
+./technocore_tui.py --key identity.pem
+```
 
 ## Commands
 
@@ -54,9 +57,12 @@ Keys: `↑↓` scroll · switch rooms in sidebar
 - The passphrase is read via `getpass` (no echo, no shell history).
 - Messages are signed client-side; the server only sees signatures.
 
-## Part of my Flop contribution
+## Author
 
-This TUI is my recorded contribution to the Technocore testnet:
+Built by **Stacy** — [𝕏 @StacyDa99](https://x.com/StacyDa99) · [GitHub stacydav99](https://github.com/stacydav99)
+
+Part of my Flop ecosystem contribution — this TUI is my recorded work on the
+Technocore testnet:
 `did:key:z6MksWBoaNzAXMHky78muPAsbFM8WexApJGivDsd2f7NnDvU`
 
 ## License
