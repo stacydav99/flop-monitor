@@ -1,11 +1,26 @@
 #!/usr/bin/env python3
-"""Technocore TUI v1 — Claude Code style, polished.
+"""FLOP Monitor v1 — signed chat terminal client for Technocore.
 
 Layout: styled startup banner (pixel-art title, subtitle, author credit,
 status line — or banner.txt pixel logo if present), room sidebar,
 threaded chat feed, hairline prompt input, split status bar. English UI.
 """
+
 from __future__ import annotations
+import os
+import sys
+
+# Auto-use local .venv when textual isn't installed on the system python,
+# so `./technocore_tui.py` just works after a plain git clone + venv setup.
+if __package__ is None:
+    _here = os.path.dirname(os.path.abspath(__file__))
+    _venv_py = os.path.join(_here, ".venv", "bin", "python")
+    try:
+        import textual  # noqa: F401
+    except ImportError:
+        if os.path.exists(_venv_py) and sys.executable != _venv_py:
+            os.execv(_venv_py, [_venv_py] + sys.argv)
+
 
 import asyncio
 import argparse
@@ -623,23 +638,87 @@ class TechnocoreTUI(App):
         self._send(self.room, value)
 
 
+def cmd_setup(args):
+    """One-command onboarding: generate encrypted Ed25519 DID key."""
+    import getpass
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives import serialization
+    except ImportError:
+        raise SystemExit("Missing dependency. Run: pip install -r requirements.txt")
+    out = args.out
+    if out.exists():
+        if input(f"{out} already exists. Overwrite? [y/N] ").strip().lower() != "y":
+            print("Aborted - existing key kept.")
+            return
+    while True:
+        pw = getpass.getpass("Choose a passphrase (min 12 chars): ")
+        if len(pw) < 12:
+            print("Too short - 12+ characters.")
+            continue
+        pw2 = getpass.getpass("Repeat passphrase: ")
+        if pw != pw2:
+            print("Passphrases don't match, try again.")
+            continue
+        break
+    key = Ed25519PrivateKey.generate()
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.BestAvailableEncryption(pw.encode()),
+    )
+    out.write_bytes(pem)
+    out.chmod(0o600)
+    did = did_from_key(key)
+    print()
+    print("DID key created:", out)
+    print("Your DID:", did)
+    print()
+    print("Save this DID - it is your identity.")
+    print("Start posting:")
+    print(f"  python3 {Path(sys.argv[0]).name} --key {out}")
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Technocore terminal UI")
-    ap.add_argument("--room", default="lobby")
-    ap.add_argument("--key", type=Path, default=None)
+    ap = argparse.ArgumentParser(
+        prog="technocore_tui.py",
+        description="FLOP Monitor — signed chat terminal client for Technocore",
+        epilog=(
+            "examples:\n"
+            "  %(prog)s                          read-only lobby, no key needed\n"
+            "  %(prog)s --room dev               read-only, pick a room\n"
+            "  %(prog)s setup                    create your DID key (one time)\n"
+            "  %(prog)s --key identity.pem       full mode: sign & post"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = ap.add_subparsers(dest="command")
+    p_setup = sub.add_parser("setup", help="generate your DID key (one-time)")
+    p_setup.add_argument("--out", type=Path, default=Path("identity.pem"),
+                         help="where to save the key (default: identity.pem)")
+    ap.add_argument("--room", default="lobby", help="room to join (default: lobby)")
+    ap.add_argument("--key", type=Path, default=None, metavar="FILE",
+                    help="Ed25519 PEM key — enables signed posting")
     ap.add_argument("--sidebar-width", type=int, default=24,
                     metavar="N",
                     help="room sidebar width in columns (default 24)")
     args = ap.parse_args()
 
+    if args.command == "setup":
+        cmd_setup(args)
+        return
+
     key = None
     if args.key:
         import getpass
         if load_pem_private_key is None:
-            raise SystemExit("pip install cryptography")
+            raise SystemExit("Missing dependency. Run: pip install -r requirements.txt")
         data = args.key.read_bytes()
         pw = getpass.getpass("Passphrase: ").encode()
-        key = load_pem_private_key(data, password=pw)
+        try:
+            key = load_pem_private_key(data, password=pw)
+        except ValueError:
+            raise SystemExit("Wrong passphrase or corrupted key file.")
 
     TechnocoreTUI(args.room, key, sidebar_width=args.sidebar_width).run()
 
