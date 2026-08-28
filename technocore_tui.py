@@ -78,12 +78,33 @@ def did_from_key(key) -> str:
     return "did:key:" + "z" + b58(b"\xed\x01" + pub)
 
 
+import unicodedata
+
+
+def norm_text(t: str) -> str:
+    """Mirror the server's single-line sweep so the signed payload matches
+    what Technocore verifies. The server replaces newlines, format chars,
+    zero-width joiners and bidi overrides with a single space BEFORE checking
+    the signature, then strips. If we sign raw text we mismatch on any message
+    containing those characters (ZWJ emoji, RTL text, etc.) and the post is
+    rejected. Signing the swept text keeps client and server in agreement.
+    """
+    swept = []
+    for c in t:
+        cat = unicodedata.category(c)
+        if cat in {"Cc", "Cf", "Cs", "Co", "Zl", "Zp"} or c in "\u200b\u200c\u200d\u200e\u200f\ufeff":
+            swept.append(" ")
+        else:
+            swept.append(c)
+    return "".join(swept).strip()
+
+
 def sign_payload(key, payload: bytes) -> str:
     return base64.urlsafe_b64encode(key.sign(payload)).decode().rstrip("=")
 
 
 def message_payload(room: str, nonce: str, text: str) -> bytes:
-    return f"{room}|{nonce}|{' '.join(text.split())}".encode()
+    return f"{room}|{nonce}|{norm_text(text)}".encode()
 
 
 def http_json(url: str, timeout: float = 15.0):
@@ -94,12 +115,13 @@ def http_json(url: str, timeout: float = 15.0):
 
 def post_message(room: str, text: str, key):
     nonce = str(time.time_ns())
-    payload = message_payload(room, nonce, text)
+    swept = norm_text(text)
+    payload = message_payload(room, nonce, swept)
     body = json.dumps({
         "did": did_from_key(key),
         "sig": sign_payload(key, payload),
         "nonce": nonce,
-        "text": " ".join(text.split()),
+        "text": swept,
     }).encode()
     url = f"{BASE}/r/{urllib.parse.quote(room)}?format=json"
     req = urllib.request.Request(
